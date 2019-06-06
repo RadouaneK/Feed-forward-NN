@@ -1,9 +1,10 @@
 #Loading the packages
 import numpy as np
 import tensorflow as tf
+import pandas as pd
 from matplotlib import pyplot as plt 
-
-
+from test import balanced_data, populate_train_val
+from keras.utils.np_utils import to_categorical   
 
 def initialize_parameters(L_dim):
     """
@@ -77,8 +78,11 @@ def mini_batches(X, Y, mb_size = 64):
         minibatches.append(mini_batch)
     return minibatches
 
-def model(X_training, X_test, y_training, y_test,L_dim, minibatch_size = 512, learning_rate = 0.001, number_of_epochs = 10000):
-	# Specify the dimenstion of the model as a list in L_dim
+def model(X_training, X_test, y_training, y_test, L_dim, minibatch_size = 128, learning_rate = 0.001, number_of_epochs = 10000):
+    """
+    train the model and with specified dimentions
+    L_dim: list, dimensions of the layers   
+    """
     tf.reset_default_graph() 
   
     cache = dict(train_cost=[], test_cost=[], train_acc =[], test_acc=[] )
@@ -99,34 +103,32 @@ def model(X_training, X_test, y_training, y_test,L_dim, minibatch_size = 512, le
     decayed_learning_rate = tf.train.exponential_decay(learning_rate, global_step, 10000, 0.96, staircase = True)
     #backpropagation phase
     optimizer = tf.train.AdamOptimizer(learning_rate = decayed_learning_rate).minimize(cost, global_step = global_step)
-    
-    saver = tf.train.Saver()
+
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for i in range(number_of_epochs):
+
+        for i in range(1, number_of_epochs+1):
+            epoch_cost = 0.
             minibatches = mini_batches(X_training, y_training, minibatch_size)
-            
+            num_minibatches = int(m / minibatch_size)
             for minibatch in minibatches:
                 (minibatch_X, minibatch_Y) = minibatch
-                sess.run(optimizer, feed_dict = {X: minibatch_X, Y:minibatch_Y})
-
-            train_acc, train_loss = sess.run([accuracy,cost], feed_dict={X:X_training, Y:y_training})
-            test_acc, test_loss = sess.run([accuracy,cost], feed_dict={X:X_test, Y:y_test})
+                _ , minibatch_cost = sess.run([optimizer, cost], feed_dict={X: minibatch_X, Y: minibatch_Y})
+                epoch_cost += minibatch_cost / num_minibatches
 
             if  i % 100 == 0:
+                train_acc = sess.run(accuracy, feed_dict={X:X_training, Y:y_training})
+                test_acc, test_cost = sess.run([accuracy,cost], feed_dict={X:X_test, Y:y_test})
                 l_rate = sess.run(decayed_learning_rate)
-                print ("epoch:%i cost: %f train_acc: %f test_acc: %f  alpha: %f" % (i, train_loss, train_acc, test_acc, l_rate))
-                cache['train_cost'].append(train_loss)
+                print ("epoch:%i train_cost: %f train_acc: %f test_cost: %f test_acc: %f " % (i, epoch_cost, train_acc, test_cost, test_acc))
+                cache['train_cost'].append(epoch_cost)
                 cache['train_acc'].append(train_acc)
-                cache['test_cost'].append(test_loss)
+                cache['test_cost'].append(test_cost)
                 cache['test_acc'].append(test_acc)
-
-            if train_acc >= 0.99 and test_acc >=0.99:
-                break
                 
         print ("Train Accuracy Final:", accuracy.eval({X: X_training, Y: y_training}))
         print ("Test Accuracy Final:", accuracy.eval({X: X_test, Y: y_test}))
-        saver.save(sess, save_path = "./TrainedModel/model.ckpt")
+    
 
     plt.figure(figsize=(12, 8))
     plt.plot(np.array(cache['train_cost']), "r-", label="Train")
@@ -139,12 +141,29 @@ def model(X_training, X_test, y_training, y_test,L_dim, minibatch_size = 512, le
     plt.ylim(0,2)
     plt.grid()
     plt.show()
-    #EOF
+#EOF 
 
 # example on how to run the model
-X_training = np.random.randn(50,5)
-X_test = np.random.randn(20,5)
-y_training = np.random.randn(50,4)
-y_test = np.random.randn(20,4)
+data = pd.read_csv('data CSV test file.csv')
+data = np.array(data)
+data = data[:,1:]
 
-model(X_training, X_test,y_training, y_test, [5,10,10,4], minibatch_size = 512, learning_rate = 0.01, number_of_epochs = 10000)
+#split the data into training and validation sets
+train, test = populate_train_val(data, train_size = 0.7, stratify = False)
+
+# we should balance only the training set
+train = balanced_data(train)
+
+
+# splitting data and labels
+X_training = train[:,1:]
+X_test = test[:,1:]
+y_training = train[:,0]
+y_test = test[:,0]
+
+#one hot encoding
+y_training = to_categorical(y_training, 2)
+y_test = to_categorical(y_test, 2)
+
+# training
+model(X_training, X_test,y_training, y_test, L_dim = [X_training.shape[1],10,10,2],minibatch_size = 512, learning_rate = 0.001,  number_of_epochs = 10000)
